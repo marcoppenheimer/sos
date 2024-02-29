@@ -83,6 +83,7 @@ class CharmedZooKeeper(Plugin, UbuntuPlugin):
         )
 
         # TODO: Add zkSnapShotToolkit + ZKTxnLogToolkit outputs here after they're added to the Snap
+        # Needs to be in the Snap so that we have Java, which is only available in snap context
 
         # --- JMX METRICS ---
 
