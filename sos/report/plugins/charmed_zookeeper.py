@@ -2,10 +2,15 @@ from datetime import datetime, timedelta
 from sos.report.plugins import Plugin, UbuntuPlugin, PluginOpt
 import glob
 import re
+import os
+import json
 
 PATHS = {
     "CONF": "/var/snap/charmed-zookeeper/current/etc/zookeeper",
     "LOGS": "/var/snap/charmed-zookeeper/common/var/log/zookeeper",
+    "DATA-LOG": "/var/snap/charmed-zookeeper/common/var/lib/zookeeper/data-log",
+    "DATA": "/var/snap/charmed-zookeeper/common/var/lib/zookeeper/data",
+    "BIN": "/snap/charmed-zookeeper/current/opt/zookeeper/bin",
 }
 
 DATE_FORMAT = "%Y-%m-%d-%H"
@@ -34,6 +39,13 @@ class CharmedZooKeeper(Plugin, UbuntuPlugin):
             val_type=str,
         ),
     ]
+
+    @property
+    def default_env(self) -> dict[str, str]:
+        return {
+            "JAVA_HOME": "JAVA_HOME=/snap/charmed-zookeeper/current/usr/lib/jvm/java-8-openjdk-amd64/jre",
+            "CLIENT_JVMFLAGS": f"-Dzookeeper.requireClientAuthScheme=sasl -Dzookeeper.superUser=super -Djava.security.auth.login.config={PATHS['CONF']}/zookeeper-jaas.cfg",
+        }
 
     def setup(self):
         # --- FILE EXCLUSIONS ---
@@ -82,8 +94,57 @@ class CharmedZooKeeper(Plugin, UbuntuPlugin):
             "snap logs charmed-zookeeper.daemon -n 100000", suggest_filename="snap-logs"
         )
 
-        # TODO: Add zkSnapShotToolkit + ZKTxnLogToolkit outputs here after they're added to the Snap
-        # Needs to be in the Snap so that we have Java, which is only available in snap context
+        # --- TRANSACTIONS ---
+
+        for file in glob.glob(f"{PATHS['DATA-LOG']}/*"):
+            transactions = self.exec_cmd(
+                f"{PATHS['BIN']}/zkTxnLogToolkit.sh -d {file}",
+                env=self.default_env,
+            )
+
+            if not (transactions and transactions["status"] == 0):
+                continue
+
+            with self.collection_file(
+                f"zookeeper-transaction-log-{os.path.basename(file)}"
+            ) as f:
+                valid_dt_transactions = []
+                for transaction in transactions["output"].splitlines():
+                    log_dt = datetime.strptime(
+                        " ".join(transaction.split()[:4]), "%m/%d/%y %I:%M:%S %p %Z"
+                    )
+                    if log_dt < datetime.strptime(
+                        str(self.get_option("date-from")), DATE_FORMAT
+                    ) or log_dt > datetime.strptime(
+                        str(self.get_option("date-to")), DATE_FORMAT
+                    ):
+                        continue
+
+                    valid_dt_transactions.append(transactions)
+
+                f.write("\n".join(valid_dt_transactions))
+
+        # --- SNAPSHOT ---
+
+        most_recent_file = sorted(glob.glob(f"{PATHS['DATA']}/*"))[-1]
+
+        # TODO: Figure out how to use super user for all acl protected files
+        snapshot_json = self.exec_cmd(
+            f"{PATHS['BIN']}/zkSnapShotToolkit.sh -d {most_recent_file}",
+            env=self.default_env,
+        )
+        snapshot = {}
+
+        if snapshot_json and snapshot_json["status"] == 0:
+            for line in snapshot_json["output"].splitlines():
+                try:
+                    snapshot = json.loads(line)
+                    break
+                except json.JSONDecodeError:
+                    continue
+
+        with self.collection_file("zookeeper-snapshot") as f:
+            f.write(json.dumps(snapshot, indent=4))
 
         # --- JMX METRICS ---
 
