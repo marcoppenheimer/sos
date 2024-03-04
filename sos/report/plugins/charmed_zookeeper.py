@@ -190,3 +190,5 @@ class CharmedZooKeeper(Plugin, UbuntuPlugin):
             r'(password=")[^"]*',
             r"\1*********",
         )
+
+        os.remove(f"{PATHS['CONF']}/{TEMP_JAAS}")
