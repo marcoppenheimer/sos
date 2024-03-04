@@ -15,6 +15,7 @@ PATHS = {
 }
 
 DATE_FORMAT = "%Y-%m-%d-%H"
+TEMP_JAAS = "client.jaas"
 
 
 class CharmedZooKeeper(Plugin, UbuntuPlugin):
@@ -44,13 +45,14 @@ class CharmedZooKeeper(Plugin, UbuntuPlugin):
     @property
     def default_env(self) -> dict[str, str]:
         return {
-            "JAVA_HOME": f"JAVA_HOME={PATHS['JRE']}",
-            "CLIENT_JVMFLAGS": f"-Djava.security.auth.login.config={PATHS['CONF']}/client-jaas.cfg",
+            "JAVA_HOME": PATHS["JRE"],
+            "CLIENT_JVMFLAGS": f"-Djava.security.auth.login.config={PATHS['CONF']}/{TEMP_JAAS}",
+            "SERVER_JVMFLAGS": "",
         }
 
     @property
     def super_password(self) -> str | None:
-        with open(f"{PATHS['CONF']}/client-jaas.cfg", "r") as f:
+        with open(f"{PATHS['CONF']}/{TEMP_JAAS}", "r") as f:
             for line in f.readlines():
                 if "super" in line:
                     return line.split("=")[1].replace(";", "").replace('"', "").strip()
@@ -59,7 +61,7 @@ class CharmedZooKeeper(Plugin, UbuntuPlugin):
 
     def setup(self):
         # creating temporary jaas file for super user SASL auth
-        with open(f"{PATHS['CONF']}/client-jaas.cfg", "w") as f:
+        with open(f"{PATHS['CONF']}/{TEMP_JAAS}", "w") as f:
             f.write(
                 f"""
             Client {{
@@ -97,6 +99,7 @@ class CharmedZooKeeper(Plugin, UbuntuPlugin):
                 f"{PATHS['CONF']}/*.pem",
                 f"{PATHS['CONF']}/*.p12",
                 f"{PATHS['CONF']}/*.jks",
+                f"{PATHS['CONF']}/{TEMP_JAAS}",
             ]
         )
 
@@ -118,7 +121,7 @@ class CharmedZooKeeper(Plugin, UbuntuPlugin):
 
         # --- TRANSACTIONS ---
 
-        for file in glob.glob(f"{PATHS['DATA-LOG']}/*"):
+        for file in glob.glob(f"{PATHS['DATA-LOG']}/version-2/*"):
             transactions = self.exec_cmd(
                 f"{PATHS['BIN']}/zkTxnLogToolkit.sh -d {file}",
                 env=self.default_env,
@@ -127,32 +130,35 @@ class CharmedZooKeeper(Plugin, UbuntuPlugin):
             if not (transactions and transactions["status"] == 0):
                 continue
 
-            with self.collection_file(
-                f"zookeeper-transaction-log-{os.path.basename(file)}"
-            ) as f:
-                valid_dt_transactions = []
-                for transaction in transactions["output"].splitlines():
+            valid_dt_transactions = []
+            for transaction in transactions["output"].splitlines():
+                try:
                     log_dt = datetime.strptime(
                         " ".join(transaction.split()[:4]), "%m/%d/%y %I:%M:%S %p %Z"
                     )
-                    if log_dt < datetime.strptime(
-                        str(self.get_option("date-from")), DATE_FORMAT
-                    ) or log_dt > datetime.strptime(
-                        str(self.get_option("date-to")), DATE_FORMAT
-                    ):
-                        continue
+                except ValueError:  # must've been a bad line
+                    continue
 
-                    valid_dt_transactions.append(transactions)
+                if log_dt < datetime.strptime(
+                    str(self.get_option("date-from")), DATE_FORMAT
+                ) or log_dt > datetime.strptime(
+                    str(self.get_option("date-to")), DATE_FORMAT
+                ):
+                    continue
 
+                valid_dt_transactions.append(transaction)
+
+            with self.collection_file(
+                f"zookeeper-transaction-{os.path.basename(file)}"
+            ) as f:
                 f.write("\n".join(valid_dt_transactions))
 
         # --- SNAPSHOT ---
 
-        most_recent_file = sorted(glob.glob(f"{PATHS['DATA']}/*"))[-1]
+        most_recent_file = sorted(glob.glob(f"{PATHS['DATA']}/version-2/*"))[-1]
 
-        # TODO: Figure out how to use super user for all acl protected files
         snapshot_json = self.exec_cmd(
-            f"{PATHS['BIN']}/zkSnapShotToolkit.sh -d {most_recent_file}",
+            f"{PATHS['BIN']}/zkSnapShotToolkit.sh -json {most_recent_file}",
             env=self.default_env,
         )
         snapshot = {}
