@@ -100,6 +100,14 @@ class CharmedKafka(Plugin, UbuntuPlugin):
             "snap logs charmed-kafka.daemon -n 100000", suggest_filename="snap-logs"
         )
 
+        # --- TOPICS ---
+
+        self.add_cmd_output(
+            f"charmed-kafka.topics --describe {self.default_bin_args}",
+            env={"KAFKA_OPTS": ""},
+            suggest_filename="kafka-topics",
+        )
+
         # --- CONFIGS ---
 
         for entity in ["topics", "clients", "users", "brokers", "ips"]:
