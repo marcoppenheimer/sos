@@ -11,6 +11,7 @@ PATHS = {
     "DATA-LOG": "/var/snap/charmed-zookeeper/common/var/lib/zookeeper/data-log",
     "DATA": "/var/snap/charmed-zookeeper/common/var/lib/zookeeper/data",
     "BIN": "/snap/charmed-zookeeper/current/opt/zookeeper/bin",
+    "JRE": "/snap/charmed-zookeeper/current/usr/lib/jvm/java-8-openjdk-amd64/jre",
 }
 
 DATE_FORMAT = "%Y-%m-%d-%H"
@@ -43,11 +44,32 @@ class CharmedZooKeeper(Plugin, UbuntuPlugin):
     @property
     def default_env(self) -> dict[str, str]:
         return {
-            "JAVA_HOME": "JAVA_HOME=/snap/charmed-zookeeper/current/usr/lib/jvm/java-8-openjdk-amd64/jre",
-            "CLIENT_JVMFLAGS": f"-Dzookeeper.requireClientAuthScheme=sasl -Dzookeeper.superUser=super -Djava.security.auth.login.config={PATHS['CONF']}/zookeeper-jaas.cfg",
+            "JAVA_HOME": f"JAVA_HOME={PATHS['JRE']}",
+            "CLIENT_JVMFLAGS": f"-Djava.security.auth.login.config={PATHS['CONF']}/client-jaas.cfg",
         }
 
+    @property
+    def super_password(self) -> str | None:
+        with open(f"{PATHS['CONF']}/client-jaas.cfg", "r") as f:
+            for line in f.readlines():
+                if "super" in line:
+                    return line.split("=")[1].replace(";", "").replace('"', "").strip()
+
+        return ""
+
     def setup(self):
+        # creating temporary jaas file for super user SASL auth
+        with open(f"{PATHS['CONF']}/client-jaas.cfg", "w") as f:
+            f.write(
+                f"""
+            Client {{
+                org.apache.zookeeper.server.auth.DigestLoginModule required
+                username="super"
+                password="{self.super_password}";
+            }};
+                """
+            )
+
         # --- FILE EXCLUSIONS ---
 
         for file in glob.glob(f"{PATHS['LOGS']}/*"):
