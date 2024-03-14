@@ -79,6 +79,7 @@ class CharmedKafka(Plugin, UbuntuPlugin):
         self.add_forbidden_path(
             [
                 f"{PATHS['CONF']}/*.pem",
+                f"{PATHS['CONF']}/*.key",
                 f"{PATHS['CONF']}/*.p12",
                 f"{PATHS['CONF']}/*.jks",
             ]
