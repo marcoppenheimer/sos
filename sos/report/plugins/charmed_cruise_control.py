@@ -136,3 +136,9 @@ class CharmedCruiseControl(Plugin, UbuntuPlugin):
             r'(password=")[^"]*',
             r"\1*********",
         )
+
+        self.do_path_regex_sub(
+            f"{PATHS['CONF']}/*",
+            r"(balancer: )[^,]*",
+            r"\1*********",
+        )
