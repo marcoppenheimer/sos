@@ -131,14 +131,9 @@ class CharmedCruiseControl(Plugin, UbuntuPlugin):
     def postproc(self):
         # --- SCRUB PASSWORDS ---
 
-        self.do_path_regex_sub(
-            f"{PATHS['CONF']}/*",
-            r'(password=")[^"]*',
-            r"\1*********",
-        )
-
-        self.do_path_regex_sub(
-            f"{PATHS['CONF']}/*",
-            r"(balancer: )[^,]*",
-            r"\1*********",
-        )
+        for scrub_pattern in [r'(password=")[^"]*', r"(balancer: )[^,]*"]:
+            self.do_path_regex_sub(
+                f"{PATHS['CONF']}/*",
+                scrub_pattern,
+                r"\1*********",
+            )
